@@ -204,13 +204,13 @@ To verify the tool is working:
 If you see connection errors:
 
 1. **Hosted Server**: Check internet connection and try `curl https://mcp.ansari.chat/mcp`
-2. **Local Server**: Ensure the server is built (`npm run build:mcp`) and path is correct
+2. **Local Server**: Ensure the server is built (`npm run build`) and path is correct
 3. **Windows**: Use forward slashes in paths or escape backslashes
 
 ### "Command not found" Errors
 
 If you get `npx: command not found`:
-1. Install Node.js 20.19 or higher: https://nodejs.org/
+1. Install Node.js (v18 or higher): https://nodejs.org/
 2. Verify installation: `node --version` and `npx --version`
 
 ## Claude Code Status Line Task Management
@@ -258,7 +258,3 @@ For issues or questions:
 - v1.0.0 - Initial release with answer_islamic_question tool
 - Hosted server deployment at mcp.ansari.chat
 - Support for Claude Desktop, Claude Code, and Cursor
-
-## Alexa voice profile
-
-For the opt-in short-answer endpoint and Cloudflare test workflow, see [docs/alexa.md](docs/alexa.md). The regular hosted endpoint is unchanged until maintainers deploy this contribution.

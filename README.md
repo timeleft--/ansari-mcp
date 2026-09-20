@@ -11,6 +11,48 @@ https://mcp.ansari.chat/mcp
 
 You can use this URL directly in Claude Code or with adapters for Claude Desktop and Cursor (see setup instructions below).
 
+## Hosted MCP protocol update
+
+This branch replaces the hosted route's handwritten JSON-RPC dispatch with the
+official MCP SDK. It negotiates `2025-11-25`, `2025-06-18`, `2025-03-26`, and
+`2024-11-05` over the JSON-response Streamable HTTP endpoint. This is a branch
+capability, not a claim that the public service has deployed the update. The
+legacy HTTP+SSE transport and the newer `2026-07-28` protocol are not implemented.
+
+The original `answer_islamic_question` tool, question text, answer text, provider
+URL, and provider timeout are preserved. Empty resource and prompt listings
+remain available. The SDK also accepts `logging/setLevel`; the hosted route emits
+no question, answer, or header logs and does not retain a process-global verbosity
+setting across requests. The standalone application keeps its original tool behavior;
+FastMCP is updated within major version 3 because the older release fails to start
+with the newer SDK (it registers completion handlers without that capability).
+Its CLI dependencies require Node 20.19+, 22.12+, or 23 and newer.
+
+Migration notes:
+
+- POST responses use JSON without allocating an MCP session. Valid notifications
+  receive HTTP 202 without a response body.
+- GET and DELETE return HTTP 405; use `/` for availability checks instead of the
+  previous GET `/mcp` information response. No idle server-event stream is opened.
+- Browser requests must use an allowed Origin. `MCP_ALLOWED_ORIGINS` accepts a
+  comma-separated list of exact origins; the defaults are `https://mcp.ansari.chat`,
+  `http://localhost:3000`, and `http://127.0.0.1:3000`. Native clients need no Origin.
+- The SDK validates request envelopes, version headers, and the tool's advertised
+  schema. Invalid tool arguments return tool errors before invoking Ansari.
+- Requests must accept both `application/json` and `text/event-stream`, as required
+  by Streamable HTTP clients. OPTIONS supports browser preflight.
+
+The SDK removes bespoke protocol maintenance and keeps this endpoint compatible
+with a request/response deployment. Hosting savings have not been measured: the
+previous handler already used JSON responses without a persistent event stream.
+The [2025 transport specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+permits this configuration; the
+[2026 protocol's handshake removal](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
+is a separate migration.
+
+Run `npm test` for HTTP contract checks with a controlled downstream response,
+and `npm run build` for Next.js compilation and type checking.
+
 ## Quick Start - Using the Hosted Server
 
 The easiest way to use Ansari MCP is through our hosted server. No installation required!
@@ -94,7 +136,7 @@ If you prefer to run the server locally:
 
 ### Prerequisites
 
-- Node.js 20.19 or higher (Node 24 recommended)
+- Node.js (v18 or higher)
 - npm
 
 ### Installation Steps
@@ -112,22 +154,8 @@ npm install
 
 3. Build the TypeScript code:
 ```bash
-npm run build:mcp
+npm run build
 ```
-
-## Alexa voice profile
-
-A separate voice endpoint provides brief spoken answers while the regular endpoint
-keeps its original answer style. See [Alexa setup and Cloudflare testing](docs/alexa.md).
-The [technical specification](docs/alexa-design.md) explains the protocol changes,
-voice policy, hosting alternatives, and proposed account linking.
-These endpoints describe this branch; they are not a claim that the hosted service
-has already deployed the change.
-
-- Next.js: `/mcp` for regular answers, `/mcp/alexa` for short voice answers.
-- FastMCP: add `--alexa` for the same voice profile over stdio or HTTP.
-- MCP negotiation supports `2025-11-25` and earlier supported revisions through
-  the official SDK rather than a hard-coded initialization response.
 
 ## Development
 
@@ -136,7 +164,7 @@ has already deployed the change.
 **Important**: After making ANY changes to the TypeScript source files in `src/`, you MUST rebuild:
 
 ```bash
-npm run build:mcp
+npm run build
 ```
 
 ## Configuration
@@ -151,7 +179,7 @@ https://staging-api.ansari.chat/api/v2/mcp-complete
 You can override this with the `--api-url` (or `-u`) flag:
 
 ```bash
-npm run start:mcp -- --api-url https://custom-api.example.com/api/endpoint
+npm start -- --api-url https://custom-api.example.com/api/endpoint
 ```
 
 ## Running the Server
@@ -161,7 +189,7 @@ npm run start:mcp -- --api-url https://custom-api.example.com/api/endpoint
 This is the default mode for integration with Claude Desktop and Claude Code:
 
 ```bash
-npm run start:mcp
+npm start
 ```
 
 ### Mode 2: HTTP (for testing)
@@ -169,7 +197,7 @@ npm run start:mcp
 To run in HTTP mode for testing with curl or other HTTP clients:
 
 ```bash
-npm run start:mcp-http
+npm start -- --http
 ```
 
 The server will be available at: `http://localhost:8089/mcp`
@@ -238,17 +266,6 @@ Claude will use the Ansari tool to provide answers with authentic citations from
 
 ## Testing
 
-```bash
-npm test                 # offline service, transport, and protocol tests
-npm run type-check
-npm run build            # Next.js production build
-npm run build:mcp        # standalone FastMCP build (also runs before tests)
-```
-
-`npm run dev` / `npm run build` / `npm start` serve the Next.js application.
-The `*:mcp` scripts serve the standalone FastMCP application.
-
-
 ### Test the API Connection Directly
 
 ```bash
@@ -276,7 +293,7 @@ This will open a web interface where you can test the tool interactively.
 
 1. Start the server:
 ```bash
-npm run start:mcp-http
+npm start -- --http
 ```
 
 2. The server will run at `http://localhost:8089/mcp`
@@ -298,7 +315,7 @@ npm run start:mcp-http
 
 **Solution**: You MUST rebuild after every change:
 ```bash
-npm run build:mcp
+npm run build
 ```
 
 ### Claude Desktop Not Finding the Tool
@@ -307,7 +324,7 @@ npm run build:mcp
 
 **Solutions**:
 1. Verify the path in `claude_desktop_config.json` is absolute and correct
-2. Ensure you ran `npm run build:mcp` successfully
+2. Ensure you ran `npm run build` successfully
 3. Completely restart Claude Desktop (quit and reopen)
 4. Check the build output exists: `ls dist/server.js`
 
@@ -328,7 +345,7 @@ npm run build:mcp
 ```bash
 # Clean and rebuild
 rm -rf dist/
-npm run build:mcp
+npm run build
 ```
 
 ## Project Structure
@@ -349,8 +366,8 @@ ansari-mcp/
 
 ## Important Notes
 
-- **Always rebuild after changes**: Run the appropriate build (`build` for Next.js, `build:mcp` for standalone) after modifying TypeScript files
-- **No stdout logging in stdio mode**: Keep stdout reserved for MCP. Optional metrics go to stderr.
+- **Always rebuild after changes**: Run `npm run build` after modifying ANY TypeScript files
+- **No console output in stdio mode**: Console statements will break the MCP protocol
 - **Use absolute paths**: In Claude Desktop/Code configs, always use absolute paths
 - **Restart after config changes**: Always restart Claude Desktop/Code after changing configuration
 

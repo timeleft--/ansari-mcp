@@ -9,14 +9,12 @@
     "type-check": "tsc --noEmit",
     "start": "next start",
     "lint": "next lint",
-    "build:mcp": "tsc -p tsconfig.mcp.json",
+    "build:mcp": "tsc",
     "start:mcp": "node dist/server.js",
     "start:mcp-http": "node dist/server.js --http",
     "dev:mcp": "npx fastmcp dev src/server.ts",
     "inspect": "npx fastmcp inspect src/server.ts",
-    "test": "tsx --test tests/*.test.ts",
-    "start:alexa": "node dist/server.js --http --alexa",
-    "pretest": "npm run build:mcp"
+    "test": "tsx --test tests/*.test.ts"
   },
   "keywords": [],
   "author": "",
@@ -35,12 +33,12 @@
     "axios": "^1.10.0",
     "dotenv": "^17.2.0",
     "fastmcp": "^3.35.0",
-    "next": "^15.5.25",
+    "next": "^15.5.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "zod": "^4.0.5"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": "^20.19.0 || ^22.12.0 || >=23"
   }
 }
