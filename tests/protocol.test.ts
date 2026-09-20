@@ -8,16 +8,20 @@ import axios from 'axios'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { Client as ModernClient, StreamableHTTPClientTransport as ModernHttpTransport } from '@modelcontextprotocol/client'
 import handler from '../pages/api/mcp'
 
 const requests: { url: string | undefined; data: string }[] = []
+const wireMethods: string[] = []
 const answer = `${'A complete answer with qualifications. '.repeat(100)}Original attribution.`
 const oldAdapter = axios.defaults.adapter
 const oldOrigins = process.env.MCP_ALLOWED_ORIGINS
 const http = createServer(async (req, res) => {
   let body = ''
   for await (const chunk of req) body += chunk
-  const nextReq = Object.assign(req, { body: body ? JSON.parse(body) : undefined })
+  const parsedBody = body ? JSON.parse(body) : undefined
+  if (parsedBody?.method) wireMethods.push(parsedBody.method)
+  const nextReq = Object.assign(req, { body: parsedBody })
   const nextRes = Object.assign(res, {
     status(code: number) { res.statusCode = code; return nextRes },
     json(data: unknown) { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)); return nextRes },
@@ -45,18 +49,106 @@ after(() => {
   else process.env.MCP_ALLOWED_ORIGINS = oldOrigins
 })
 const post = (body: unknown, extra = {}) => fetch(base, {
-  method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify(body),
+  method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000),
 })
 
-test('negotiates supported revisions and returns a supported fallback for an unknown revision', async () => {
+// Legacy replies may be finite SSE; modern replies use JSON. Consume the
+// complete HTTP response so an accidentally idle stream would time out the test.
+async function rpc(response: Response) {
+  if (response.headers.get('content-type')?.includes('application/json')) return response.json()
+  const messages = (await response.text()).split('\n')
+    .filter(line => line.startsWith('data:')).map(line => line.slice(5).trim())
+    .filter(Boolean).map(line => JSON.parse(line))
+  assert.equal(messages.length, 1)
+  return messages[0]
+}
+const modernMeta = {
+  'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+  'io.modelcontextprotocol/clientCapabilities': {},
+  'io.modelcontextprotocol/clientInfo': { name: 'modern-test', version: '1' },
+}
+const modernPost = (method: string, params: Record<string, unknown> = {}, meta = {}, extraHeaders = {}) => post({
+  jsonrpc: '2.0', id: 'modern', method, params: { ...params, _meta: { ...modernMeta, ...meta } },
+}, { 'Mcp-Method': method, ...(typeof params.name === 'string' ? { 'Mcp-Name': params.name } : {}), ...extraHeaders })
+
+test('2026 tool calls succeed without initialization and preserve the full question and answer', async () => {
+  const before = wireMethods.length
+  const question = '  A modern question requiring a complete answer.  '
+  const response = await modernPost('tools/call', { name: 'answer_islamic_question', arguments: { question } })
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get('content-type')!, /application\/json/)
+  assert.equal(response.headers.get('mcp-session-id'), null)
+  const { result } = await rpc(response)
+  assert.equal(result.resultType, 'complete')
+  assert.deepEqual(result.content, [{ type: 'text', text: answer }])
+  assert.deepEqual(JSON.parse(requests.at(-1)!.data), { messages: [{ role: 'user', content: question }] })
+  assert.deepEqual(wireMethods.slice(before), ['tools/call'])
+})
+
+test('2026 discovery and lists supply revision, identity, and required cache metadata', async () => {
+  const response = await modernPost('server/discover')
+  assert.equal(response.status, 200)
+  const { result } = await rpc(response)
+  assert.ok(result.supportedVersions.includes('2026-07-28'))
+  assert.equal(result._meta['io.modelcontextprotocol/serverInfo'].name, 'Ansari')
+  for (const [method, key] of [
+    ['tools/list', 'tools'], ['resources/list', 'resources'],
+    ['resources/templates/list', 'resourceTemplates'], ['prompts/list', 'prompts'],
+  ]) {
+    const { result: listed } = await rpc(await modernPost(method))
+    assert.equal(listed.resultType, 'complete')
+    assert.equal(listed.ttlMs, 0)
+    assert.equal(listed.cacheScope, 'private')
+    assert.equal(listed[key].length, method === 'tools/list' ? 1 : 0)
+  }
+})
+
+test('SDK 2 pinned to 2026 discovers and calls the tool without a legacy handshake', async () => {
+  const before = wireMethods.length
+  const client = new ModernClient({ name: 'modern-sdk-test', version: '1' }, {
+    versionNegotiation: { mode: { pin: '2026-07-28' } },
+  })
+  try {
+    await client.connect(new ModernHttpTransport(new URL(base)))
+    const { tools } = await client.listTools()
+    assert.equal(tools.length, 1)
+    const result = await client.callTool({ name: tools[0].name, arguments: { question: 'Modern SDK question' } })
+    assert.ok(!result.isError)
+    assert.deepEqual(result.content, [{ type: 'text', text: answer }])
+    assert.ok(wireMethods.slice(before).includes('server/discover'))
+    assert.ok(!wireMethods.slice(before).includes('initialize'))
+    assert.ok(!wireMethods.slice(before).includes('notifications/initialized'))
+  } finally { await client.close() }
+})
+
+test('2026 rejects unsupported revisions, mismatched method headers, and invalid arguments before Ansari', async () => {
+  const before = requests.length
+  const badVersion = await modernPost('tools/list', {}, { 'io.modelcontextprotocol/protocolVersion': '2099-01-01' })
+  assert.equal((await rpc(badVersion)).error.code, -32022)
+  const mismatch = await modernPost('tools/list', {}, {}, { 'Mcp-Method': 'tools/call' })
+  assert.equal((await rpc(mismatch)).error.code, -32020)
+  const invalid = await modernPost('tools/call', { name: 'answer_islamic_question', arguments: { question: 42 } })
+  assert.equal((await rpc(invalid)).result.isError, true)
+  assert.equal(requests.length, before)
+})
+
+test('2026 does not reintroduce removed logging methods or idle subscription streams', async () => {
+  const removed = await modernPost('logging/setLevel', { level: 'debug' })
+  assert.equal((await rpc(removed)).error.code, -32601)
+  const subscription = await modernPost('subscriptions/listen', { notifications: {} })
+  assert.match(subscription.headers.get('content-type')!, /application\/json/)
+  assert.deepEqual((await rpc(subscription)).error, { code: -32603, message: 'Subscription limit reached' })
+})
+
+test('legacy mode negotiates supported revisions and returns a supported fallback for an unknown revision', async () => {
   for (const version of ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2099-01-01']) {
     const response = await post({ jsonrpc: '2.0', id: 0, method: 'initialize', params: {
       protocolVersion: version, capabilities: {}, clientInfo: { name: 'test', version: '1' },
     } })
     assert.equal(response.status, 200)
-    assert.match(response.headers.get('content-type')!, /application\/json/)
+    assert.match(response.headers.get('content-type')!, /text\/event-stream/)
     assert.equal(response.headers.get('mcp-session-id'), null)
-    const message = await response.json()
+    const message = await rpc(response)
     assert.equal(message.id, 0)
     assert.equal(message.result.protocolVersion, version === '2099-01-01' ? '2025-11-25' : version)
     for (const capability of ['tools', 'resources', 'prompts', 'logging']) {
@@ -65,7 +157,7 @@ test('negotiates supported revisions and returns a supported fallback for an unk
   }
 })
 
-test('SDK client discovers and calls the original tool without rewriting or shortening content', async () => {
+test('SDK 1 client discovers and calls the original tool without rewriting or shortening content', async () => {
   const client = new Client({ name: 'test', version: '1' })
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(base)))
@@ -88,11 +180,11 @@ test('retains empty resource and prompt discovery and accepts standard logging l
     ['resources/list', 'resources'], ['resources/templates/list', 'resourceTemplates'], ['prompts/list', 'prompts'],
   ]) {
     const response = await post({ jsonrpc: '2.0', id: key, method })
-    assert.deepEqual((await response.json()).result, { [key]: [] })
+    assert.deepEqual((await rpc(response)).result, { [key]: [] })
   }
   for (const level of ['debug', 'info', 'warning', 'error', 'critical']) {
     const response = await post({ jsonrpc: '2.0', id: level, method: 'logging/setLevel', params: { level } })
-    assert.deepEqual((await response.json()).result, {})
+    assert.deepEqual((await rpc(response)).result, {})
   }
 })
 
@@ -101,9 +193,9 @@ test('notifications return 202 without a JSON-RPC body; requests keep their IDs'
   assert.equal(notification.status, 202)
   assert.equal(await notification.text(), '')
   const ping = await post({ jsonrpc: '2.0', id: 0, method: 'ping' })
-  assert.deepEqual(await ping.json(), { jsonrpc: '2.0', id: 0, result: {} })
+  assert.deepEqual(await rpc(ping), { jsonrpc: '2.0', id: 0, result: {} })
   const unknown = await post({ jsonrpc: '2.0', id: 'unknown', method: 'not/a/method' })
-  const message = await unknown.json()
+  const message = await rpc(unknown)
   assert.equal(message.id, 'unknown')
   assert.equal(message.error.code, -32601)
 })
@@ -118,7 +210,7 @@ test('validates version headers, request envelopes, and tool arguments before ca
     const response = await post({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: {
       name: 'answer_islamic_question', arguments: args,
     } })
-    assert.equal((await response.json()).result.isError, true)
+    assert.equal((await rpc(response)).result.isError, true)
   }
   assert.equal(requests.length, beforeCalls)
 })
@@ -135,6 +227,8 @@ test('checks browser origins and permits MCP version and authorization preflight
   assert.equal(preflight.status, 204)
   assert.match(preflight.headers.get('Access-Control-Allow-Headers')!, /MCP-Protocol-Version/)
   assert.match(preflight.headers.get('Access-Control-Allow-Headers')!, /Authorization/)
+  assert.match(preflight.headers.get('Access-Control-Allow-Headers')!, /Mcp-Method/)
+  assert.match(preflight.headers.get('Access-Control-Allow-Headers')!, /Mcp-Name/)
 })
 
 test('does not open an idle GET stream or allocate a deletable session', async () => {

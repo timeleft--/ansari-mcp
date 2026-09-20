@@ -21,6 +21,8 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/node": "^24.0.15",
     "@types/react": "^19.1.11",
     "@vercel/node": "^5.3.13",
@@ -29,7 +31,8 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "axios": "^1.10.0",
     "dotenv": "^17.2.0",
     "fastmcp": "^3.35.0",

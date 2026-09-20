@@ -14,44 +14,59 @@ You can use this URL directly in Claude Code or with adapters for Claude Desktop
 ## Hosted MCP protocol update
 
 This branch replaces the hosted route's handwritten JSON-RPC dispatch with the
-official MCP SDK. It negotiates `2025-11-25`, `2025-06-18`, `2025-03-26`, and
-`2024-11-05` over the JSON-response Streamable HTTP endpoint. This is a branch
-capability, not a claim that the public service has deployed the update. The
-legacy HTTP+SSE transport and the newer `2026-07-28` protocol are not implemented.
+official TypeScript MCP SDK 2. The same tool definition serves `2026-07-28`
+requests and older clients through `legacy: 'stateless'`. Legacy negotiation
+supports `2025-11-25`, `2025-06-18`, `2025-03-26`, and `2024-11-05`.
+This describes the branch; deployment to the public service remains a maintainer
+step. The older separate-endpoint HTTP+SSE transport is not provided.
 
 The original `answer_islamic_question` tool, question text, answer text, provider
 URL, and provider timeout are preserved. Empty resource and prompt listings
-remain available. The SDK also accepts `logging/setLevel`; the hosted route emits
-no question, answer, or header logs and does not retain a process-global verbosity
-setting across requests. The standalone application keeps its original tool behavior;
-FastMCP is updated within major version 3 because the older release fails to start
-with the newer SDK (it registers completion handlers without that capability).
-Its CLI dependencies require Node 20.19+, 22.12+, or 23 and newer.
+remain available. Legacy clients can still use `logging/setLevel`; that method
+was removed from the modern protocol. The hosted route adds no question, answer,
+or header logging and retains no verbosity setting between requests.
+
+Only the hosted Next.js endpoint uses SDK 2 (`@modelcontextprotocol/server` and
+`@modelcontextprotocol/node`). The standalone FastMCP entry point retains its
+existing behavior and SDK 1 protocol support. FastMCP is updated within major
+version 3 because the older release fails to start with SDK 1.30 (it registers
+completion handlers without that capability). Its CLI dependencies require
+Node 20.19+, 22.12+, or 23 and newer. The SDK 1 and SDK 2 clients are development
+dependencies used to check both protocol paths.
 
 Migration notes:
 
-- POST responses use JSON without allocating an MCP session. Valid notifications
-  receive HTTP 202 without a response body.
+- Modern requests carry the protocol revision and client metadata in `params._meta`,
+  plus the standard `Mcp-Method` and, where applicable, `Mcp-Name` HTTP headers.
+  They can call tools without `initialize`; discovery uses `server/discover`.
+- Modern POST responses use JSON. The SDK supplies required result metadata,
+  including default list cache hints (`ttlMs: 0`, `cacheScope: 'private').
+  This change introduces no response caching or cross-user state.
+- Legacy clients retain their initialization handshake. Their POST replies use
+  finite SSE responses that end with the result; no session ID is allocated.
+  Valid legacy notifications receive HTTP 202 without a response body.
 - GET and DELETE return HTTP 405; use `/` for availability checks instead of the
-  previous GET `/mcp` information response. No idle server-event stream is opened.
+  previous GET `/mcp` information response. Modern background subscriptions are
+  disabled. No idle server-event stream is offered.
 - Browser requests must use an allowed Origin. `MCP_ALLOWED_ORIGINS` accepts a
   comma-separated list of exact origins; the defaults are `https://mcp.ansari.chat`,
   `http://localhost:3000`, and `http://127.0.0.1:3000`. Native clients need no Origin.
-- The SDK validates request envelopes, version headers, and the tool's advertised
-  schema. Invalid tool arguments return tool errors before invoking Ansari.
-- Requests must accept both `application/json` and `text/event-stream`, as required
-  by Streamable HTTP clients. OPTIONS supports browser preflight.
+- The SDK validates request envelopes, protocol revisions, routing headers, and
+  tool arguments. Invalid tool arguments fail before invoking Ansari.
+- Streamable HTTP clients must accept both `application/json` and
+  `text/event-stream`. OPTIONS supports browser preflight for both protocol eras.
 
-The SDK removes bespoke protocol maintenance and keeps this endpoint compatible
-with a request/response deployment. Hosting savings have not been measured: the
-previous handler already used JSON responses without a persistent event stream.
-The [2025 transport specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
-permits this configuration; the
-[2026 protocol's handshake removal](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
-is a separate migration.
+The SDK owns message dispatch, validation, response formatting, and request
+cleanup. See its [legacy-client guide](https://ts.sdk.modelcontextprotocol.io/v2/serving/legacy-clients.html)
+and the [2026 protocol changes](https://modelcontextprotocol.io/specification/2026-07-28/changelog).
+Modern clients can avoid the legacy initialization exchange. Actual request
+savings depend on client discovery behavior; hosting savings have not been
+measured. The previous handler already returned JSON without persistent streams,
+and clients using a 2025 revision still perform their handshake.
 
-Run `npm test` for HTTP contract checks with a controlled downstream response,
-and `npm run build` for Next.js compilation and type checking.
+Run `npm test` for modern and legacy HTTP contract checks with a controlled
+Ansari response, plus a standalone FastMCP regression check. Run `npm run build`
+for Next.js compilation and type checking.
 
 ## Quick Start - Using the Hosted Server
 
