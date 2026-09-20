@@ -4,6 +4,9 @@ The voice profile is opt-in. It uses the existing TypeScript, Next.js, FastMCP,
 Axios, and Zod stack. There is no player, audio-generation service, second model,
 account-linking flow, or shared chat history in this implementation.
 
+For the implementation rationale, HTTP compatibility changes, hosting alternatives,
+and proposed account linking, see the [Alexa technical specification](alexa-design.md).
+
 ## Contract
 
 Both profiles expose `answer_islamic_question({ question })`. The endpoint or

@@ -119,6 +119,8 @@ npm run build:mcp
 
 A separate voice endpoint provides brief spoken answers while the regular endpoint
 keeps its original answer style. See [Alexa setup and Cloudflare testing](docs/alexa.md).
+The [technical specification](docs/alexa-design.md) explains the protocol changes,
+voice policy, hosting alternatives, and proposed account linking.
 These endpoints describe this branch; they are not a claim that the hosted service
 has already deployed the change.
 
