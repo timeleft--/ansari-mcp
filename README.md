@@ -94,7 +94,7 @@ If you prefer to run the server locally:
 
 ### Prerequisites
 
-- Node.js (v18 or higher)
+- Node.js 20.19 or higher (Node 24 recommended)
 - npm
 
 ### Installation Steps
@@ -112,8 +112,20 @@ npm install
 
 3. Build the TypeScript code:
 ```bash
-npm run build
+npm run build:mcp
 ```
+
+## Alexa voice profile
+
+A separate voice endpoint provides brief spoken answers while the regular endpoint
+keeps its original answer style. See [Alexa setup and Cloudflare testing](docs/alexa.md).
+These endpoints describe this branch; they are not a claim that the hosted service
+has already deployed the change.
+
+- Next.js: `/mcp` for regular answers, `/mcp/alexa` for short voice answers.
+- FastMCP: add `--alexa` for the same voice profile over stdio or HTTP.
+- MCP negotiation supports `2025-11-25` and earlier supported revisions through
+  the official SDK rather than a hard-coded initialization response.
 
 ## Development
 
@@ -122,7 +134,7 @@ npm run build
 **Important**: After making ANY changes to the TypeScript source files in `src/`, you MUST rebuild:
 
 ```bash
-npm run build
+npm run build:mcp
 ```
 
 ## Configuration
@@ -137,7 +149,7 @@ https://staging-api.ansari.chat/api/v2/mcp-complete
 You can override this with the `--api-url` (or `-u`) flag:
 
 ```bash
-npm start -- --api-url https://custom-api.example.com/api/endpoint
+npm run start:mcp -- --api-url https://custom-api.example.com/api/endpoint
 ```
 
 ## Running the Server
@@ -147,7 +159,7 @@ npm start -- --api-url https://custom-api.example.com/api/endpoint
 This is the default mode for integration with Claude Desktop and Claude Code:
 
 ```bash
-npm start
+npm run start:mcp
 ```
 
 ### Mode 2: HTTP (for testing)
@@ -155,7 +167,7 @@ npm start
 To run in HTTP mode for testing with curl or other HTTP clients:
 
 ```bash
-npm start -- --http
+npm run start:mcp-http
 ```
 
 The server will be available at: `http://localhost:8089/mcp`
@@ -224,6 +236,17 @@ Claude will use the Ansari tool to provide answers with authentic citations from
 
 ## Testing
 
+```bash
+npm test                 # offline service, transport, and protocol tests
+npm run type-check
+npm run build            # Next.js production build
+npm run build:mcp        # standalone FastMCP build (also runs before tests)
+```
+
+`npm run dev` / `npm run build` / `npm start` serve the Next.js application.
+The `*:mcp` scripts serve the standalone FastMCP application.
+
+
 ### Test the API Connection Directly
 
 ```bash
@@ -251,7 +274,7 @@ This will open a web interface where you can test the tool interactively.
 
 1. Start the server:
 ```bash
-npm start -- --http
+npm run start:mcp-http
 ```
 
 2. The server will run at `http://localhost:8089/mcp`
@@ -273,7 +296,7 @@ npm start -- --http
 
 **Solution**: You MUST rebuild after every change:
 ```bash
-npm run build
+npm run build:mcp
 ```
 
 ### Claude Desktop Not Finding the Tool
@@ -282,7 +305,7 @@ npm run build
 
 **Solutions**:
 1. Verify the path in `claude_desktop_config.json` is absolute and correct
-2. Ensure you ran `npm run build` successfully
+2. Ensure you ran `npm run build:mcp` successfully
 3. Completely restart Claude Desktop (quit and reopen)
 4. Check the build output exists: `ls dist/server.js`
 
@@ -303,7 +326,7 @@ npm run build
 ```bash
 # Clean and rebuild
 rm -rf dist/
-npm run build
+npm run build:mcp
 ```
 
 ## Project Structure
@@ -324,8 +347,8 @@ ansari-mcp/
 
 ## Important Notes
 
-- **Always rebuild after changes**: Run `npm run build` after modifying ANY TypeScript files
-- **No console output in stdio mode**: Console statements will break the MCP protocol
+- **Always rebuild after changes**: Run the appropriate build (`build` for Next.js, `build:mcp` for standalone) after modifying TypeScript files
+- **No stdout logging in stdio mode**: Keep stdout reserved for MCP. Optional metrics go to stderr.
 - **Use absolute paths**: In Claude Desktop/Code configs, always use absolute paths
 - **Restart after config changes**: Always restart Claude Desktop/Code after changing configuration
 

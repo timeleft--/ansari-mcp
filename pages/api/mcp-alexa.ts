@@ -1,3 +1,3 @@
 import { createMcpHandler } from '@/mcp-http';
 
-export default createMcpHandler('standard');
+export default createMcpHandler('alexa');
